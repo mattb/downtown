@@ -14,6 +14,15 @@ function key(n, z)
   downtown:key(n, z)
 end
 
+local function beat()
+  while true do
+    clock.sync(1 / 4)
+    downtown:tick()
+    redraw()
+  end
+end
+
 function init()
   downtown:init()
+  clock.run(beat)
 end
