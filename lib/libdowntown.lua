@@ -3,6 +3,7 @@ local inspect = include('lib/inspect')
 local MusicUtil = require 'musicutil'
 local ControlSpec = require 'controlspec'
 
+local RESET_NEXT = false -- don't perform reset until next tick
 local GATE_MODES = {
   'Repeat',
   'Hold',
@@ -121,6 +122,7 @@ function Downtown:new(options)
   self.grid = options.grid
   self.current_grid_key_x = 0
   self.current_grid_key_y = 0
+  self.reset_requested = false
   self.status = ''
 
   self.scale_names = {}
@@ -165,6 +167,17 @@ function Downtown:new(options)
     controlspec = ControlSpec.new(0, 1, 'lin', 0.01, 0.06, '')
   }
 
+  params:add {
+    type = 'option',
+    id = 'crow_reset',
+    name = 'Crow reset in',
+    options = {'1', '2', 'Off'},
+    default = 5,
+    action = function(v)
+      self:setup_crow()
+    end
+  }
+
   self.stages = {}
   for i = 1, 8 do
     local stage = Stage({param_prefix = 'stage_' .. i .. '_', index = i})
@@ -175,6 +188,33 @@ function Downtown:new(options)
   self.current_pulse = 0
   self.current_stage = 1
   self.current_note = 0
+end
+
+function Downtown:setup_crow()
+  local crow_reset_in = params:get('crow_reset')
+  crow.input[1].change = function()
+  end
+  crow.input[2].change = function()
+  end
+  if crow_reset_in < 3 then
+    crow.input[crow_reset_in].change = function()
+      self:reset()
+    end
+    crow.input[crow_reset_in].mode('change', 2.0, 0.25, 'rising')
+  end
+end
+
+function Downtown:reset()
+  if RESET_NEXT then
+    self.reset_requested = true
+  else
+    self:perform_reset()
+  end
+end
+
+function Downtown:perform_reset()
+  self.current_stage = 1
+  self.current_pulse = 1
 end
 
 function Downtown:tick()
@@ -192,6 +232,12 @@ function Downtown:tick()
       stage = self.stages[self.current_stage]
       safety = safety - 1
     until stage:should_skip() == false or safety == 0
+  end
+
+  if self.reset_requested then
+    self.reset_requested = false
+    self:perform_reset()
+    stage = self.stages[self.current_stage]
   end
 
   local scale = self.scale_names[params:get('scale')]

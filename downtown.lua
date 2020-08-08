@@ -39,6 +39,11 @@ end
 function init()
   downtown:init()
   if not DEBUG then
-    clock.run(beat)
+    clock.run(
+      function()
+        clock.sync(4) -- try to start our bars on the Link bar start
+        clock.run(beat)
+      end
+    )
   end
 end
