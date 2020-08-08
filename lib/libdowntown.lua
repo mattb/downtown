@@ -123,7 +123,9 @@ function Downtown:new(options)
   self.current_grid_key_x = 0
   self.current_grid_key_y = 0
   self.reset_requested = false
+  self.skip_next_gate = false
   self.status = ''
+  self.last_tick = clock.get_beats()
 
   self.scale_names = {}
   for index, value in ipairs(MusicUtil.SCALES) do
@@ -172,10 +174,19 @@ function Downtown:new(options)
     id = 'crow_reset',
     name = 'Crow reset in',
     options = {'1', '2', 'Off'},
-    default = 5,
+    default = 3,
     action = function(v)
       self:setup_crow()
     end
+  }
+
+  params:add {
+    type = 'number',
+    id = 'reset_beat_count',
+    name = 'Reset on beat',
+    default = 0,
+    min = 0,
+    max = 128
   }
 
   self.stages = {}
@@ -185,8 +196,7 @@ function Downtown:new(options)
     table.insert(self.stages, stage)
   end
 
-  self.current_pulse = 0
-  self.current_stage = 1
+  self:perform_reset()
   self.current_note = 0
 end
 
@@ -205,22 +215,42 @@ function Downtown:setup_crow()
 end
 
 function Downtown:reset()
+  local now = clock.get_beats()
+  print('RESET signalled at ' .. now - self.last_tick .. ' since last tick')
+  print('Last tick was at beat ' .. math.floor((self.last_tick * 4) % 4))
+  print('Reset signal was at beat ' .. math.floor((now * 4) % 4))
+  print(' ---')
   if RESET_NEXT then
     self.reset_requested = true
   else
     self:perform_reset()
+    self.skip_next_gate = true
+    self:tick()
   end
 end
 
 function Downtown:perform_reset()
   self.current_stage = 1
-  self.current_pulse = 1
+  self.current_pulse = 0
 end
 
-function Downtown:tick()
-  local stage = self.stages[self.current_stage]
+function Downtown:calculate_next()
+  local reset_beat_count = params:get('reset_beat_count')
+  if reset_beat_count > 0 then
+    local beat = math.floor((clock.get_beats() * 4) % reset_beat_count)
+    if beat == 0 then
+      self:perform_reset()
+    end
+  end
+
+  if self.reset_requested then
+    self.reset_requested = false
+    self:perform_reset()
+  end
+
   self.current_pulse = self.current_pulse + 1
 
+  local stage = self.stages[self.current_stage]
   if self.current_pulse > stage:pulse_count() then
     self.current_pulse = 1
     local safety = 8
@@ -233,29 +263,34 @@ function Downtown:tick()
       safety = safety - 1
     until stage:should_skip() == false or safety == 0
   end
+end
 
-  if self.reset_requested then
-    self.reset_requested = false
-    self:perform_reset()
-    stage = self.stages[self.current_stage]
+function Downtown:tick()
+  self.last_tick = clock.get_beats()
+  self:calculate_next()
+  local stage = self.stages[self.current_stage]
+
+  if self.skip_next_gate then
+    self.skip_next_gate = false
+  else
+    if stage:should_rest(self.current_pulse) then
+      crow.output[1].volts = 0
+      self.status = 'REST  '
+    else
+      local gate_time = params:get('gate_time')
+      if stage:should_hold() then
+        gate_time = 10
+        self.status = 'HOLD  '
+      else
+        self.status = 'PULSE '
+      end
+      crow.output[1].action = 'pulse(' .. gate_time .. ', 5, 1)'
+      crow.output[1]()
+    end
   end
 
   local scale = self.scale_names[params:get('scale')]
   self.current_note = stage:pitch(0, scale, params:get('octaves'))
-  if stage:should_rest(self.current_pulse) then
-    crow.output[1].volts = 0
-    self.status = 'REST  '
-  else
-    local gate_time = params:get('gate_time')
-    if stage:should_hold() then
-      gate_time = 10
-      self.status = 'HOLD  '
-    else
-      self.status = 'PULSE '
-    end
-    crow.output[1].action = 'pulse(' .. gate_time .. ', 5, 1)'
-    crow.output[1]()
-  end
   crow.output[2].volts = self.current_note / 12.0
   if stage:should_slide() then
     crow.output[2].slew = params:get('slide_time')
