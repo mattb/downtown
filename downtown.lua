@@ -1,6 +1,14 @@
 local Downtown = include('lib/libdowntown')
 
-local downtown = Downtown()
+local g = grid.connect()
+
+local DEBUG = false
+
+local downtown = Downtown {grid = g}
+
+g.key = function(x, y, z)
+  downtown:grid_key(x, y, z)
+end
 
 function redraw()
   downtown:redraw()
@@ -12,6 +20,12 @@ end
 
 function key(n, z)
   downtown:key(n, z)
+  if DEBUG then
+    if z == 1 then
+      downtown:tick()
+      redraw()
+    end
+  end
 end
 
 local function beat()
@@ -24,5 +38,7 @@ end
 
 function init()
   downtown:init()
-  clock.run(beat)
+  if not DEBUG then
+    clock.run(beat)
+  end
 end

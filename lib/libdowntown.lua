@@ -3,14 +3,16 @@ local inspect = include('lib/inspect')
 local MusicUtil = require 'musicutil'
 local ControlSpec = require 'controlspec'
 
-local Stage = Object:extend()
-
 local GATE_MODES = {
   'Repeat',
   'Hold',
   'Single',
   'Rest'
 }
+
+-- STAGE --
+
+local Stage = Object:extend()
 
 function Stage:new(options)
   self.param_prefix = options.param_prefix
@@ -48,6 +50,23 @@ function Stage:setup_params()
   }
 end
 
+function Stage:set_gate_mode_index(i)
+  return params:set(self.param_prefix .. 'gate_mode', i)
+end
+
+function Stage:gate_mode_index()
+  return params:get(self.param_prefix .. 'gate_mode')
+end
+
+function Stage:rotate_skip_slide()
+  local i = params:get(self.param_prefix .. 'slide')
+  i = i + 1
+  if i > 3 then
+    i = 1
+  end
+  params:set(self.param_prefix .. 'slide', i)
+end
+
 function Stage:should_slide()
   return (params:get(self.param_prefix .. 'slide') == 2)
 end
@@ -64,7 +83,7 @@ function Stage:should_rest(pulse)
     return false
   end
   if params:get(self.param_prefix .. 'gate_mode') == 3 then -- Single
-    return (pulse == 1)
+    return (pulse > 1)
   end
   if params:get(self.param_prefix .. 'gate_mode') == 4 then -- Rest
     return true
@@ -73,6 +92,10 @@ end
 
 function Stage:should_skip()
   return (params:get(self.param_prefix .. 'slide') == 3)
+end
+
+function Stage:set_pulse_count(c)
+  return params:set(self.param_prefix .. 'pulse_count', c)
 end
 
 function Stage:pulse_count()
@@ -89,10 +112,16 @@ function Stage:pitch(root, scale, octaves)
   return MusicUtil.snap_note_to_array(self:note_param(octaves) + root, notes)
 end
 
+-- DOWNTOWN --
+
 local Downtown = Object:extend()
 
-function Downtown:new()
+function Downtown:new(options)
   Downtown.super.new(self)
+  self.grid = options.grid
+  self.current_grid_key_x = 0
+  self.current_grid_key_y = 0
+  self.status = ''
 
   self.scale_names = {}
   for index, value in ipairs(MusicUtil.SCALES) do
@@ -169,10 +198,14 @@ function Downtown:tick()
   self.current_note = stage:pitch(0, scale, params:get('octaves'))
   if stage:should_rest(self.current_pulse) then
     crow.output[1].volts = 0
+    self.status = 'REST  '
   else
     local gate_time = params:get('gate_time')
     if stage:should_hold() then
       gate_time = 10
+      self.status = 'HOLD  '
+    else
+      self.status = 'PULSE '
     end
     crow.output[1].action = 'pulse(' .. gate_time .. ', 5, 1)'
     crow.output[1]()
@@ -180,9 +213,11 @@ function Downtown:tick()
   crow.output[2].volts = self.current_note / 12.0
   if stage:should_slide() then
     crow.output[2].slew = params:get('slide_time')
+    self.status = self.status .. 'SLIDE '
   else
     crow.output[2].slew = 0
   end
+  self:update_grid()
 end
 
 function Downtown:redraw()
@@ -194,13 +229,88 @@ function Downtown:redraw()
   screen.text('Pulse ' .. self.current_pulse)
   screen.move(10, 30)
   screen.text('Note ' .. self.current_note)
+  screen.move(10, 40)
+  screen.text(self.status)
   screen.update()
+end
+
+function Downtown:update_grid()
+  local g = self.grid
+  for x = 1, 8 do
+    for y = 1, 8 do
+      local b = 8
+      if y > self.stages[x]:pulse_count() then
+        b = 3
+      end
+      if x == self.current_stage and y == self.current_pulse then
+        b = 15
+      end
+      g:led(x, 9 - y, b)
+    end
+
+    for y = 1, 4 do
+      local b = 3
+      if y == self.stages[x]:gate_mode_index() then
+        b = 8
+      end
+      g:led(x + 8, 5 - y, b)
+    end
+
+    local skip_slide = 6
+    if self.stages[x]:should_skip() then
+      skip_slide = 0
+    end
+    if self.stages[x]:should_slide() then
+      skip_slide = 12
+    end
+    g:led(x + 8, 8, skip_slide)
+
+    local stage_count_b = 8
+    if x > params:get('stages') then
+      stage_count_b = 3
+    end
+    g:led(x + 8, 6, stage_count_b)
+  end
+  if self.current_grid_key_x > 0 and self.current_grid_key_y > 0 then
+    g:led(self.current_grid_key_x, self.current_grid_key_y, 15)
+  end
+  g:refresh()
 end
 
 function Downtown:enc(n, d)
 end
 
 function Downtown:key(n, z)
+end
+
+function Downtown:grid_key(x, y, z)
+  if x <= 8 and y <= 8 and z == 1 then
+    self.stages[x]:set_pulse_count(9 - y)
+    self.current_grid_key_x = x
+    self.current_grid_key_y = y
+  end
+
+  if x >= 9 and x <= 16 and y <= 5 and z == 1 then
+    self.stages[x - 8]:set_gate_mode_index(5 - y)
+    self.current_grid_key_x = x
+    self.current_grid_key_y = y
+  end
+
+  if x >= 9 and x <= 16 and y == 8 and z == 1 then
+    self.stages[x - 8]:rotate_skip_slide()
+  end
+
+  if x >= 9 and x <= 16 and y == 6 and z == 1 then
+    params:set('stages', x - 8)
+    self.current_grid_key_x = x
+    self.current_grid_key_y = y
+  end
+
+  if z == 0 then
+    self.current_grid_key_x = 0
+    self.current_grid_key_y = 0
+  end
+  self:update_grid()
 end
 
 function Downtown:init()
