@@ -22,7 +22,7 @@ function key(n, z)
   downtown:key(n, z)
   if DEBUG then
     if z == 1 then
-      downtown:tick()
+      downtown:tick {}
       redraw()
     end
   end
@@ -31,7 +31,7 @@ end
 local function beat()
   while true do
     clock.sync(1 / 4)
-    downtown:tick()
+    downtown:tick {}
     redraw()
   end
 end

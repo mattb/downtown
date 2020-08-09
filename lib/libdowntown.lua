@@ -123,15 +123,22 @@ function Downtown:new(options)
   self.current_grid_key_x = 0
   self.current_grid_key_y = 0
   self.reset_requested = false
-  self.skip_next_gate = false
   self.status = ''
   self.last_tick = clock.get_beats()
+  self.pingpong_inc = 1
 
   self.scale_names = {}
   for index, value in ipairs(MusicUtil.SCALES) do
     table.insert(self.scale_names, value['name'])
   end
 
+  self:setup_params()
+
+  self:do_reset()
+  self.current_note = 0
+end
+
+function Downtown:setup_params()
   params:add_separator('DOWNTOWN')
 
   params:add {
@@ -171,6 +178,23 @@ function Downtown:new(options)
 
   params:add {
     type = 'option',
+    id = 'direction_mode',
+    name = 'Direction mode',
+    options = {'Forward', 'Reverse', 'Pingpong', 'Brownian', 'Random'}
+  }
+
+  params:add {
+    type = 'option',
+    id = 'fixed_mode',
+    name = 'Fixed mode',
+    options = {'Off', 'On'},
+    action = function(val)
+      self.pulse_countdown = 0
+    end
+  }
+
+  params:add {
+    type = 'option',
     id = 'crow_reset',
     name = 'Crow reset in',
     options = {'1', '2', 'Off'},
@@ -195,9 +219,6 @@ function Downtown:new(options)
     stage:setup_params()
     table.insert(self.stages, stage)
   end
-
-  self:perform_reset()
-  self.current_note = 0
 end
 
 function Downtown:setup_crow()
@@ -223,15 +244,73 @@ function Downtown:reset()
   if RESET_NEXT then
     self.reset_requested = true
   else
-    self:perform_reset()
-    self.skip_next_gate = true
-    self:tick()
+    self:do_reset()
+    self:tick {skip_advance = true}
   end
 end
 
-function Downtown:perform_reset()
-  self.current_stage = 1
-  self.current_pulse = 0
+function Downtown:do_reset()
+  self.current_stage = 0
+  if params:string('fixed_mode') == 'On' then
+    self.pulse_countdown = params:get('stages')
+  end
+  self:goto_next_stage()
+end
+
+function Downtown:goto_next_stage()
+  local old_stage = self.current_stage
+  self.current_pulse = 1
+  local safety = 8
+  local stage
+  local direction = params:string('direction_mode')
+  local inc = 1
+  if direction == 'Reverse' then
+    inc = -1
+  end
+  if direction == 'Brownian' then
+    local i = math.random(100)
+    if i <= 25 then
+      inc = -1
+    elseif i <= 50 then
+      inc = 0
+    end
+  end
+  if direction == 'Pingpong' then
+    inc = self.pingpong_inc
+  end
+  repeat
+    if direction == 'Random' then
+      self.current_stage = math.random(params:get('stages'))
+    else
+      self.current_stage = self.current_stage + inc
+    end
+    if self.current_stage > params:get('stages') then
+      if direction == 'Pingpong' then
+        if params:get('stages') == 1 then
+          self.current_stage = 1
+        else
+          self.current_stage = params:get('stages') - 1
+        end
+      else
+        self.current_stage = 1
+      end
+      self.pingpong_inc = -1
+    end
+    if self.current_stage < 1 then
+      if direction == 'Pingpong' then
+        if params:get('stages') == 1 then
+          self.current_stage = 1
+        else
+          self.current_stage = 2
+        end
+      else
+        self.current_stage = params:get('stages')
+      end
+      self.pingpong_inc = 1
+    end
+    safety = safety - 1
+    stage = self.stages[self.current_stage]
+  until stage:should_skip() == false or safety == 0
 end
 
 function Downtown:calculate_next()
@@ -239,40 +318,37 @@ function Downtown:calculate_next()
   if reset_beat_count > 0 then
     local beat = math.floor((clock.get_beats() * 4) % reset_beat_count)
     if beat == 0 then
-      self:perform_reset()
+      self:do_reset()
+      return
     end
   end
 
   if self.reset_requested then
     self.reset_requested = false
-    self:perform_reset()
+    self:do_reset()
+    return
   end
 
-  self.current_pulse = self.current_pulse + 1
-
   local stage = self.stages[self.current_stage]
+  self.current_pulse = self.current_pulse + 1
+  if params:string('fixed_mode') == 'On' then
+    if self.pulse_countdown <= 0 then
+      self:do_reset()
+    end
+    self.pulse_countdown = self.pulse_countdown - 1
+  end
   if self.current_pulse > stage:pulse_count() then
-    self.current_pulse = 1
-    local safety = 8
-    repeat
-      self.current_stage = self.current_stage + 1
-      if self.current_stage > params:get('stages') then
-        self.current_stage = 1
-      end
-      stage = self.stages[self.current_stage]
-      safety = safety - 1
-    until stage:should_skip() == false or safety == 0
+    self:goto_next_stage()
   end
 end
 
-function Downtown:tick()
+function Downtown:tick(options)
   self.last_tick = clock.get_beats()
   self:calculate_next()
+
   local stage = self.stages[self.current_stage]
 
-  if self.skip_next_gate then
-    self.skip_next_gate = false
-  else
+  if not options.skip_advance then
     if stage:should_rest(self.current_pulse) then
       crow.output[1].volts = 0
       self.status = 'REST  '
