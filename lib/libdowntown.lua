@@ -428,6 +428,19 @@ function Downtown:update_grid()
     end
     g:led(x + 8, 6, stage_count_b)
   end
+
+  for x = 1, 5 do
+    g:led(x + 11, 5, 3)
+    if params:get('direction_mode') == x then
+      g:led(x + 11, 5, 12)
+    end
+  end
+  if params:string('fixed_mode') == 'On' then
+    g:led(9, 5, 12)
+  else
+    g:led(9, 5, 3)
+  end
+
   if self.current_grid_key_x > 0 and self.current_grid_key_y > 0 then
     g:led(self.current_grid_key_x, self.current_grid_key_y, 15)
   end
@@ -455,6 +468,19 @@ function Downtown:grid_key(x, y, z)
 
   if x >= 9 and x <= 16 and y == 8 and z == 1 then
     self.stages[x - 8]:rotate_skip_slide()
+  end
+
+  if x >= 9 and x <= 16 and y == 5 and z == 1 then
+    if x == 9 then
+      if params:string('fixed_mode') == 'On' then
+        params:set('fixed_mode', 1)
+      else
+        params:set('fixed_mode', 2)
+      end
+    end
+    if x >= 12 then
+      params:set('direction_mode', x - 11)
+    end
   end
 
   if x >= 9 and x <= 16 and y == 6 and z == 1 then
