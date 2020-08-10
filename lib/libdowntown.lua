@@ -29,7 +29,6 @@ function Stage:setup_params()
     controlspec = ControlSpec.new(0, 36, 'lin', 1, 0, ''),
     action = function()
       screen.ping()
-      redraw()
     end
   }
 
@@ -112,6 +111,18 @@ function Stage:note_param(octaves)
   return n / 3.0 * octaves
 end
 
+function Stage:inc_note(delta)
+  local n = params:get(self.param_prefix .. 'note') + delta
+  if n > 36 then
+    n = 36
+  end
+  if n < 0 then
+    n = 0
+  end
+  params:set(self.param_prefix .. 'note', n)
+  print(n)
+end
+
 function Stage:pitch(root, scale, octaves)
   notes = MusicUtil.generate_scale(root, scale, octaves)
   return MusicUtil.snap_note_to_array(self:note_param(octaves) + root, notes)
@@ -130,6 +141,9 @@ function Downtown:new(options)
   self.status = ''
   self.last_tick = clock.get_beats()
   self.pingpong_inc = 1
+  self.ui = {
+    current_note = 1
+  }
 
   self.scale_names = {}
   for index, value in ipairs(MusicUtil.SCALES) do
@@ -434,9 +448,17 @@ function Downtown:redraw()
 
   local x = 64 - 7
   for i = 1, 8 do
-    screen.level(2)
+    if self.ui.current_note == i then
+      screen.level(15)
+      screen.rect(x + i * 7 + 1, 6, 2, 2)
+      screen.stroke()
+    end
+    screen.level(3)
     if self.current_stage == i then
-      screen.level(6)
+      screen.level(8)
+    end
+    if i > params:get('stages') then
+      screen.level(1)
     end
     screen.rect(x + i * 7, 10, 4, 40)
     screen.stroke()
@@ -448,10 +470,6 @@ function Downtown:redraw()
     screen.stroke()
 
     local nn = MusicUtil.note_num_to_name(note + 24, false)
-    screen.move(x + i * 7, 56)
-    screen.text(string.sub(nn, 1, 1))
-    screen.move(x + i * 7, 60)
-    screen.text(string.sub(nn, 2, 2))
   end
 
   screen.update()
@@ -514,9 +532,25 @@ function Downtown:update_grid()
 end
 
 function Downtown:enc(n, d)
+  if n == 3 then
+    local stage = self.stages[self.ui.current_note]
+    stage:inc_note(d)
+  end
 end
 
 function Downtown:key(n, z)
+  if z == 1 and n == 2 then
+    self.ui.current_note = self.ui.current_note - 1
+    if self.ui.current_note == 0 then
+      self.ui.current_note = 8
+    end
+  end
+  if z == 1 and n == 3 then
+    self.ui.current_note = self.ui.current_note + 1
+    if self.ui.current_note == 9 then
+      self.ui.current_note = 1
+    end
+  end
 end
 
 function Downtown:grid_key(x, y, z)

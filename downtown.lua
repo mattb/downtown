@@ -30,6 +30,14 @@ end
 
 function init()
   downtown:init()
+
+  local t = metro.init()
+  t.time = 1 / 15
+  t.event = function()
+    redraw()
+  end
+  t:start()
+
   if not DEBUG then
     clock.run(
       function()
