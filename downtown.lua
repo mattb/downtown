@@ -28,21 +28,17 @@ function key(n, z)
   end
 end
 
-local function beat()
-  while true do
-    clock.sync(1 / 4)
-    downtown:tick {}
-    redraw()
-  end
-end
-
 function init()
   downtown:init()
   if not DEBUG then
     clock.run(
       function()
         clock.sync(4) -- try to start our bars on the Link bar start
-        clock.run(beat)
+        clock.run(
+          function()
+            downtown:beat()
+          end
+        )
       end
     )
   end

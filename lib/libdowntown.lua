@@ -193,6 +193,41 @@ function Downtown:setup_params()
     end
   }
 
+  self.clock_divider = 1
+  params:add {
+    type = 'option',
+    id = 'clock_divider',
+    name = 'Clock divider',
+    options = {
+      '1/32',
+      '1/16',
+      '1/12',
+      '1/8',
+      '1/6',
+      '1/4',
+      '1/3',
+      '1/2',
+      '1',
+      '2',
+      '3',
+      '4',
+      '5',
+      '6',
+      '7',
+      '8',
+      '12',
+      '16',
+      '24',
+      '32',
+      '48',
+      '64'
+    },
+    default = 9,
+    action = function(v)
+      self.clock_divider = load('return ' .. params:string('clock_divider'))()
+    end
+  }
+
   params:add {
     type = 'option',
     id = 'crow_reset',
@@ -497,6 +532,14 @@ function Downtown:grid_key(x, y, z)
 end
 
 function Downtown:init()
+end
+
+function Downtown:beat()
+  while true do
+    clock.sync(self.clock_divider / 4)
+    self:tick {}
+    redraw()
+  end
 end
 
 return Downtown
