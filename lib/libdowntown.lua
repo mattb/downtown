@@ -18,6 +18,7 @@ local Stage = Object:extend()
 function Stage:new(options)
   self.param_prefix = options.param_prefix
   self.index = options.index
+  self.downtown = options.downtown
 end
 
 function Stage:setup_params()
@@ -29,6 +30,8 @@ function Stage:setup_params()
     controlspec = ControlSpec.new(0, 36, 'lin', 1, 0, ''),
     action = function()
       screen.ping()
+      self.downtown.ui.last_updated_stage = self.index
+      self.downtown.ui.last_updated_stage_time = os.time()
     end
   }
 
@@ -167,7 +170,9 @@ function Downtown:new(options)
   self.last_tick = clock.get_beats()
   self.pingpong_inc = 1
   self.ui = {
-    current_note = 1
+    current_note = 1,
+    last_updated_stage = 1,
+    last_updated_stage_time = 0
   }
 
   self.scale_names = {}
@@ -293,7 +298,7 @@ function Downtown:setup_params()
 
   self.stages = {}
   for i = 1, 8 do
-    local stage = Stage({param_prefix = 'stage_' .. i .. '_', index = i})
+    local stage = Stage({param_prefix = 'stage_' .. i .. '_', index = i, downtown = self})
     stage:setup_params()
     table.insert(self.stages, stage)
   end
@@ -461,7 +466,17 @@ function Downtown:redraw()
   screen.move(10, 10)
   screen.font_face(1)
   screen.font_size(8)
+
   screen.text(MusicUtil.note_num_to_name(self.current_note + 24, true))
+
+  if os.time() - self.ui.last_updated_stage_time < 3 then
+    screen.move(30, 10)
+
+    local scale = self.scale_names[params:get('scale')]
+    local stage = self.stages[self.ui.last_updated_stage]
+    local stage_note = stage:pitch(0, scale, params:get('octaves'))
+    screen.text(self.ui.last_updated_stage .. ': ' .. MusicUtil.note_num_to_name(stage_note + 24, true))
+  end
 
   screen.level(8)
   for i = 1, self.current_stage do
