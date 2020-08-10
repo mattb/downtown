@@ -58,8 +58,33 @@ function Stage:set_gate_mode_index(i)
   return params:set(self.param_prefix .. 'gate_mode', i)
 end
 
+function Stage:inc_gate_mode_index(inc)
+  local i = params:get(self.param_prefix .. 'gate_mode')
+  if inc >= 1 then
+    i = i + 1
+  end
+  if inc <= -1 then
+    i = i - 1
+  end
+  if i > 4 then
+    i = 1
+  end
+  if i < 1 then
+    i = 4
+  end
+  params:set(self.param_prefix .. 'gate_mode', i)
+end
+
 function Stage:gate_mode_index()
   return params:get(self.param_prefix .. 'gate_mode')
+end
+
+function Stage:gate_mode_code()
+  local name = params:string(self.param_prefix .. 'gate_mode')
+  if name == 'Rest' then
+    return '..'
+  end
+  return string.sub(name, 1, 1)
 end
 
 function Stage:rotate_skip_slide()
@@ -434,6 +459,8 @@ function Downtown:redraw()
   screen.clear()
   screen.level(15)
   screen.move(10, 10)
+  screen.font_face(1)
+  screen.font_size(8)
   screen.text(MusicUtil.note_num_to_name(self.current_note + 24, true))
 
   screen.level(8)
@@ -470,6 +497,10 @@ function Downtown:redraw()
     screen.stroke()
 
     local nn = MusicUtil.note_num_to_name(note + 24, false)
+    screen.move(x + i * 7, 57)
+    screen.font_face(2)
+    screen.font_size(7)
+    screen.text(self.stages[i]:gate_mode_code())
   end
 
   screen.update()
@@ -532,6 +563,10 @@ function Downtown:update_grid()
 end
 
 function Downtown:enc(n, d)
+  if n == 2 then
+    local stage = self.stages[self.ui.current_note]
+    stage:inc_gate_mode_index(d)
+  end
   if n == 3 then
     local stage = self.stages[self.ui.current_note]
     stage:inc_note(d)
