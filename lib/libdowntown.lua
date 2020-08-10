@@ -26,7 +26,11 @@ function Stage:setup_params()
     type = 'control',
     id = self.param_prefix .. 'note',
     name = 'Note',
-    controlspec = ControlSpec.new(0, 35, 'lin', 1, 0, '')
+    controlspec = ControlSpec.new(0, 36, 'lin', 1, 0, ''),
+    action = function()
+      screen.ping()
+      redraw()
+    end
   }
 
   params:add {
@@ -416,13 +420,40 @@ function Downtown:redraw()
   screen.clear()
   screen.level(15)
   screen.move(10, 10)
-  screen.text('Stage ' .. self.current_stage)
-  screen.move(10, 20)
-  screen.text('Pulse ' .. self.current_pulse)
-  screen.move(10, 30)
-  screen.text('Note ' .. self.current_note)
-  screen.move(10, 40)
-  screen.text(self.status)
+  screen.text(MusicUtil.note_num_to_name(self.current_note + 24, true))
+
+  screen.level(8)
+  for i = 1, self.current_stage do
+    screen.rect(5 + i * 5, 20, 3, 3)
+    screen.stroke()
+  end
+  for i = 1, self.current_pulse do
+    screen.rect(5 + i * 5, 25, 3, 3)
+    screen.stroke()
+  end
+
+  local x = 64 - 7
+  for i = 1, 8 do
+    screen.level(2)
+    if self.current_stage == i then
+      screen.level(6)
+    end
+    screen.rect(x + i * 7, 10, 4, 40)
+    screen.stroke()
+    screen.level(12)
+    screen.move(x + i * 7 + 2, 48)
+    local octaves = params:get('octaves')
+    local note = self.stages[i]:note_param(octaves)
+    screen.line(x + i * 7 + 2, 47 - (note * (octaves / 3)))
+    screen.stroke()
+
+    local nn = MusicUtil.note_num_to_name(note + 24, false)
+    screen.move(x + i * 7, 56)
+    screen.text(string.sub(nn, 1, 1))
+    screen.move(x + i * 7, 60)
+    screen.text(string.sub(nn, 2, 2))
+  end
+
   screen.update()
 end
 
