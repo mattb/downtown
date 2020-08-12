@@ -22,7 +22,7 @@ function Stage:new(options)
 end
 
 function Stage:setup_params()
-  params:add_group('STAGE ' .. self.index, 4)
+  params:add_group('STAGE ' .. self.index, 5)
   params:add {
     type = 'control',
     id = self.param_prefix .. 'note',
@@ -54,6 +54,15 @@ function Stage:setup_params()
     id = self.param_prefix .. 'slide',
     name = 'Slide',
     options = {'No', 'Yes', 'Skip'}
+  }
+
+  params:add {
+    type = 'number',
+    id = self.param_prefix .. 'ratchet',
+    name = 'Ratchet',
+    default = 1,
+    min = 1,
+    max = 4
   }
 end
 
@@ -107,6 +116,10 @@ function Stage:should_hold()
   return (params:get(self.param_prefix .. 'gate_mode') == 2)
 end
 
+function Stage:should_single()
+  return params:get(self.param_prefix .. 'gate_mode') == 3 --  Single
+end
+
 function Stage:should_rest(pulse)
   if params:get(self.param_prefix .. 'gate_mode') == 1 then --  Repeat
     return false
@@ -132,6 +145,13 @@ end
 
 function Stage:pulse_count()
   return params:get(self.param_prefix .. 'pulse_count')
+end
+
+function Stage:ratchet(set_n)
+  if set_n then
+    params:set(self.param_prefix .. 'ratchet', set_n)
+  end
+  return params:get(self.param_prefix .. 'ratchet')
 end
 
 function Stage:note_param(octaves)
@@ -296,6 +316,14 @@ function Downtown:setup_params()
     max = 128
   }
 
+  params:add {
+    type = 'option',
+    id = 'crow_reset_out',
+    name = 'Crow reset out',
+    options = {'1', '2', '3', '4', 'Off'},
+    default = 5
+  }
+
   self.stages = {}
   for i = 1, 8 do
     local stage = Stage({param_prefix = 'stage_' .. i .. '_', index = i, downtown = self})
@@ -332,11 +360,19 @@ function Downtown:reset()
   end
 end
 
-function Downtown:do_reset()
+function Downtown:do_reset(options)
   self.current_stage = 0
   if params:string('fixed_mode') == 'On' then
     self.pulse_countdown = params:get('stages')
   end
+  if (options and options.beat_reset) then
+    if params:string('crow_reset_out') ~= 'Off' then
+      local gate_time = params:get('gate_time')
+      crow.output[params:get('crow_reset_out')].action = 'pulse(' .. gate_time .. ', 5, 1)'
+      crow.output[params:get('crow_reset_out')]()
+    end
+  end
+
   self:goto_next_stage()
 end
 
@@ -401,7 +437,7 @@ function Downtown:calculate_next()
   if reset_beat_count > 0 then
     local beat = math.floor((clock.get_beats() * 4) % reset_beat_count)
     if beat == 0 then
-      self:do_reset()
+      self:do_reset {beat_reset = true}
       return
     end
   end
@@ -436,7 +472,7 @@ function Downtown:tick(options)
       crow.output[1].volts = 0
       self.status = 'REST  '
     else
-      local gate_time = params:get('gate_time')
+      local gate_time = params:get('gate_time') / stage:ratchet()
       if stage:should_hold() then
         gate_time = 10
         self.status = 'HOLD  '
@@ -445,6 +481,16 @@ function Downtown:tick(options)
       end
       crow.output[1].action = 'pulse(' .. gate_time .. ', 5, 1)'
       crow.output[1]()
+      if stage:ratchet() > 1 and not stage:should_hold() and not stage:should_single() then
+        clock.run(
+          function()
+            for i = 2, stage:ratchet() do
+              clock.sync(self.clock_divider / 4 / stage:ratchet())
+              crow.output[1]()
+            end
+          end
+        )
+      end
     end
   end
 
@@ -577,6 +623,7 @@ function Downtown:update_grid()
 end
 
 function Downtown:enc(n, d)
+  screen.ping()
   if n == 2 then
     local stage = self.stages[self.ui.current_note]
     stage:inc_gate_mode_index(d)
@@ -588,6 +635,7 @@ function Downtown:enc(n, d)
 end
 
 function Downtown:key(n, z)
+  screen.ping()
   if z == 1 and n == 2 then
     self.ui.current_note = self.ui.current_note - 1
     if self.ui.current_note == 0 then
@@ -603,6 +651,7 @@ function Downtown:key(n, z)
 end
 
 function Downtown:grid_key(x, y, z)
+  screen.ping()
   if x <= 8 and y <= 8 and z == 1 then
     self.stages[x]:set_pulse_count(9 - y)
     self.current_grid_key_x = x
