@@ -22,7 +22,7 @@ function Stage:new(options)
 end
 
 function Stage:setup_params()
-  params:add_group('STAGE ' .. self.index, 5)
+  params:add_group('STAGE ' .. self.index, 7)
   params:add {
     type = 'control',
     id = self.param_prefix .. 'note',
@@ -54,6 +54,26 @@ function Stage:setup_params()
     id = self.param_prefix .. 'slide',
     name = 'Slide',
     options = {'No', 'Yes', 'Skip'}
+  }
+
+  params:add {
+    type = 'option',
+    id = self.param_prefix .. 'arpeggio',
+    name = 'Arpeggio',
+    options = {'No', 'Yes'}
+  }
+
+  params:add {
+    type = 'option',
+    id = self.param_prefix .. 'arpeggio_mode',
+    name = 'Arpeggio',
+    options = {'1-3-5', '1-3-5-7', '1-4-5', '1-5'}
+  }
+  self.arpeggio_mode_notes = {
+    {1, 3, 5},
+    {1, 3, 5, 7},
+    {1, 4, 5},
+    {1, 5}
   }
 
   params:add {
@@ -171,9 +191,50 @@ function Stage:inc_note(delta)
   print(n)
 end
 
-function Stage:pitch(root, scale, octaves)
+function Stage:pitch(root, scale, octaves, pulse)
   notes = MusicUtil.generate_scale(root, scale, octaves)
-  return MusicUtil.snap_note_to_array(self:note_param(octaves) + root, notes)
+  local note = MusicUtil.snap_note_to_array(self:note_param(octaves) + root, notes)
+
+  if params:string(self.param_prefix .. 'arpeggio') == 'Yes' then
+    local chord = self:chord(root, scale, octaves)
+    return chord[pulse]
+  end
+
+  return note
+end
+
+function Stage:chord(root, scale, octaves)
+  local notes = MusicUtil.generate_scale(root, scale, octaves)
+  local root_note = MusicUtil.snap_note_to_array(self:note_param(octaves) + root, notes)
+
+  notes = MusicUtil.generate_scale(root, scale, octaves + 3)
+  local arp = self.arpeggio_mode_notes[params:get(self.param_prefix .. 'arpeggio_mode')]
+  local arp_count = 0
+  for _ in ipairs(arp) do
+    arp_count = arp_count + 1
+  end
+
+  local note_index = 0
+  for idx, n in ipairs(notes) do
+    if n == root_note then
+      note_index = idx
+    end
+  end
+
+  local result = {}
+  if note_index > 0 then
+    for pulse = 1, 8 do
+      local offset = 0
+      offset = offset + (math.floor((pulse - 1) / arp_count)) * 7 -- octaves
+      offset = offset + arp[1 + ((pulse - 1) % arp_count)] - 1 -- scale tones
+      local note = notes[note_index + offset]
+      table.insert(result, note)
+      print('Pulse ' .. pulse .. ' arp offset ' .. offset .. ' index ' .. (note_index + offset))
+      print('Note ' .. MusicUtil.note_num_to_name(note + 24, true))
+      print('---')
+    end
+  end
+  return result
 end
 
 -- DOWNTOWN --
@@ -495,13 +556,16 @@ function Downtown:tick(options)
   end
 
   local scale = self.scale_names[params:get('scale')]
-  self.current_note = stage:pitch(0, scale, params:get('octaves'))
-  crow.output[2].volts = self.current_note / 12.0
-  if stage:should_slide() then
-    crow.output[2].slew = params:get('slide_time')
-    self.status = self.status .. 'SLIDE '
-  else
-    crow.output[2].slew = 0
+  self.current_note = stage:pitch(0, scale, params:get('octaves'), self.current_pulse)
+  for c = 1, 3 do
+    local note = stage:chord(0, scale, params:get('octaves'))
+    crow.output[1 + c].volts = note[c] / 12.0
+    if stage:should_slide() then
+      crow.output[1 + c].slew = params:get('slide_time')
+      self.status = self.status .. 'SLIDE '
+    else
+      crow.output[1 + c].slew = 0
+    end
   end
   self:update_grid()
 end
@@ -520,7 +584,7 @@ function Downtown:redraw()
 
     local scale = self.scale_names[params:get('scale')]
     local stage = self.stages[self.ui.last_updated_stage]
-    local stage_note = stage:pitch(0, scale, params:get('octaves'))
+    local stage_note = stage:pitch(0, scale, params:get('octaves'), self.current_pulse)
     screen.text(self.ui.last_updated_stage .. ': ' .. MusicUtil.note_num_to_name(stage_note + 24, true))
   end
 
